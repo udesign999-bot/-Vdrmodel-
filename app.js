@@ -35,7 +35,7 @@ const ADMIN_ANSWER_HASH   = 'ad458de0822bcc83c6dbc2915b35c2605fb0c624b3faffa5437
 const SUBADMIN_PASSWORD_HASH = 'd3cc63cac32fa68659dea32bbb8e503355a46b9e45a3246883270f35535c5a04'; // password: "IrfanVH"
 const SUBADMIN_CODE_HASH     = '17ffed2060072c95583b3844da54540f3b8649ee9b42497abe8f4aaa3a14078c'; // code: "4459"
 
-const TILE_WIDTH = 500, TILE_HEIGHT = 400;   // catalog photo export size
+const CATALOG_MAX_DIM = 900;                 // catalog photos keep their own aspect ratio, capped to this on the longer side
 const DESIGN_LAYER_MAX_W = 260;              // custom-design upload export width (kept small/low-quality by design)
 const MAX_IMAGE_LAYERS = 3;
 
@@ -104,37 +104,43 @@ function buildCategoryFileContents(key) {
   const cat = CATEGORIES.find(c => c.key === key);
   const lines = PHOTOS[key].map(slot => {
     if (!slot) return '  null,';
-    return `  {src:${JSON.stringify(slot.src)}, number:${JSON.stringify(slot.number || null)}, updated:${JSON.stringify(slot.updated)}},`;
+    return `  {src:${JSON.stringify(slot.src)}, number:${JSON.stringify(slot.number || null)}, w:${slot.w || 5}, h:${slot.h || 4}, updated:${JSON.stringify(slot.updated)}},`;
   });
-  return `// ${cat.varName}: ${cat.label} category, ${cat.count} photo slots. Each slot is null (empty) or {src, number, updated} once filled.\n` +
+  return `// ${cat.varName}: ${cat.label} category, ${cat.count} photo slots. Each slot is null (empty) or {src, number, w, h, updated} once filled. w/h are the photo's own proportions, used so its tile isn't force-cropped.\n` +
     `const ${cat.varName} = [\n${lines.join('\n')}\n];\n`;
 }
 
-async function downloadChangedFiles() {
+// No zip here on purpose: a zipped "data/" folder is exactly what caused
+// GitHub uploads to silently do nothing before — if you're already inside
+// the data/ folder on GitHub and drop in a folder called "data", it nests
+// as data/data/... and never overwrites the real file. Plain individual
+// .js files avoid that entirely — just drag them straight into data/.
+function downloadChangedFiles() {
   const keys = dirtyKeys.size > 0 ? Array.from(dirtyKeys) : [];
   if (!keys.length) return;
-  const zip = new JSZip();
-  const folder = zip.folder('data');
+
   keys.forEach(key => {
     const cat = CATEGORIES.find(c => c.key === key);
-    folder.file(cat.path.replace('data/', ''), buildCategoryFileContents(key));
+    const filename = cat.path.replace('data/', '');
+    const content = buildCategoryFileContents(key);
+    const blob = new Blob([content], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   });
-  const blob = await zip.generateAsync({ type: 'blob' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'vintagehub-catalog-update.zip';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 
   // Treat as published: clear the draft/dirty state for what we just exported.
   const draft = loadDraft();
   keys.forEach(key => { delete draft[key]; dirtyKeys.delete(key); });
   saveDraft(draft);
   updateSaveStatus();
-  document.getElementById('saveStatus').textContent = 'Downloaded — upload the file(s) in data/ to GitHub to publish.';
+  document.getElementById('saveStatus').textContent =
+    `Downloaded ${keys.length} file(s) — drag them straight into data/ on GitHub (no unzip needed) and commit.`;
 }
 document.getElementById('downloadChangedBtn').addEventListener('click', downloadChangedFiles);
 
@@ -246,6 +252,9 @@ function renderGrid() {
   arr.forEach((slot, index) => {
     const tile = document.createElement('div');
     tile.className = 'tile' + (!slot ? ' tile--empty' : '') + (canEditCatalog() ? ' tile--editable' : '');
+    if (slot && slot.w && slot.h) {
+      tile.style.aspectRatio = `${slot.w} / ${slot.h}`;
+    }
 
     if (slot) {
       const img = document.createElement('img');
@@ -272,6 +281,8 @@ function renderGrid() {
 
     grid.appendChild(tile);
   });
+
+  document.getElementById('bulkAddWrap').classList.toggle('hidden', !canEditCatalog());
 }
 
 function openLightbox(src, cat, index, slot) {
@@ -288,9 +299,10 @@ document.getElementById('lightboxCloseBtn').addEventListener('click', () => docu
 
 // ---- catalog photo crop modal (admin) -----------------------------------
 
+const CROP_TITLES = { catalog: 'Edit photo', designLayer: 'Add design image', editLayer: 'Re-crop this design' };
 function openCropModal(target) {
   activeCropTarget = target;
-  document.getElementById('cropTitle').textContent = target.mode === 'catalog' ? 'Edit photo' : 'Add design image';
+  document.getElementById('cropTitle').textContent = CROP_TITLES[target.mode] || 'Edit photo';
   document.getElementById('cropModal').classList.remove('hidden');
   document.getElementById('cropFileInput').value = '';
   const img = document.getElementById('cropImage');
@@ -301,6 +313,11 @@ function openCropModal(target) {
   if (target.mode === 'catalog') {
     const existing = PHOTOS[target.key][target.index];
     if (existing) { img.src = existing.src; initCropper(); }
+  } else if (target.mode === 'editLayer') {
+    // re-crop from the original full-quality upload when we have it, so
+    // quality doesn't degrade each time someone re-crops the same design
+    img.src = target.layer.originalSrc || target.layer.src;
+    initCropper();
   }
 }
 
@@ -313,6 +330,9 @@ document.getElementById('cropFileInput').addEventListener('change', (e) => {
   }
   const reader = new FileReader();
   reader.onload = (ev) => {
+    if (activeCropTarget && (activeCropTarget.mode === 'designLayer' || activeCropTarget.mode === 'editLayer')) {
+      activeCropTarget.originalSrc = ev.target.result;
+    }
     const img = document.getElementById('cropImage');
     if (cropper) { cropper.destroy(); cropper = null; }
     img.src = ev.target.result;
@@ -323,9 +343,8 @@ document.getElementById('cropFileInput').addEventListener('change', (e) => {
 
 function initCropper() {
   const img = document.getElementById('cropImage');
-  const isCatalog = activeCropTarget && activeCropTarget.mode === 'catalog';
   cropper = new Cropper(img, {
-    aspectRatio: isCatalog ? 5 / 4 : NaN,
+    aspectRatio: NaN, // free-form for every photo — nothing gets force-cropped to a fixed shape
     viewMode: 1, background: false, autoCropArea: 0.95, dragMode: 'move', zoomOnWheel: true,
   });
   document.getElementById('zoomRange').value = 0;
@@ -350,24 +369,104 @@ document.getElementById('clearFrameBtn').addEventListener('click', () => {
 document.getElementById('cropConfirm').addEventListener('click', () => {
   if (!cropper || !activeCropTarget) return;
   if (activeCropTarget.mode === 'catalog') {
-    const canvas = cropper.getCroppedCanvas({ width: TILE_WIDTH, height: TILE_HEIGHT, imageSmoothingQuality: 'high' });
+    const data = cropper.getData(true);
+    let outW = data.width, outH = data.height;
+    if (Math.max(outW, outH) > CATALOG_MAX_DIM) {
+      if (outW >= outH) { outH = Math.round(outH * CATALOG_MAX_DIM / outW); outW = CATALOG_MAX_DIM; }
+      else { outW = Math.round(outW * CATALOG_MAX_DIM / outH); outH = CATALOG_MAX_DIM; }
+    }
+    const canvas = cropper.getCroppedCanvas({ width: outW, height: outH, imageSmoothingQuality: 'high' });
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     const number = activeCropTarget.parsedNumber || photoNumberLabel(
       CATEGORIES.find(c => c.key === activeCropTarget.key), activeCropTarget.index, null);
-    PHOTOS[activeCropTarget.key][activeCropTarget.index] = { src: dataUrl, number, updated: new Date().toISOString() };
+    PHOTOS[activeCropTarget.key][activeCropTarget.index] = { src: dataUrl, number, w: outW, h: outH, updated: new Date().toISOString() };
     markDirty(activeCropTarget.key);
     closeCropModal();
     renderGrid();
-  } else {
+  } else if (activeCropTarget.mode === 'designLayer') {
     // design-layer upload: keep it small & lower quality on purpose (per instructions)
     const natW = cropper.getData().width, natH = cropper.getData().height;
     const outW = Math.min(DESIGN_LAYER_MAX_W, natW);
     const outH = Math.round(outW * (natH / natW));
     const canvas = cropper.getCroppedCanvas({ width: outW, height: outH, imageSmoothingQuality: 'medium' });
     const dataUrl = canvas.toDataURL('image/jpeg', 0.55);
-    addImageLayer(dataUrl, outW, outH);
+    addImageLayer(dataUrl, outW, outH, activeCropTarget.originalSrc);
     closeCropModal();
+  } else if (activeCropTarget.mode === 'editLayer') {
+    // re-cropping an image already placed on the t-shirt canvas
+    const natW = cropper.getData().width, natH = cropper.getData().height;
+    const outW = Math.min(DESIGN_LAYER_MAX_W, natW);
+    const outH = Math.round(outW * (natH / natW));
+    const canvas = cropper.getCroppedCanvas({ width: outW, height: outH, imageSmoothingQuality: 'medium' });
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.55);
+    const layer = activeCropTarget.layer;
+    layer.src = dataUrl;
+    if (activeCropTarget.originalSrc) layer.originalSrc = activeCropTarget.originalSrc;
+    closeCropModal();
+    renderDesignerLayers();
   }
+});
+
+// ---- bulk photo upload (admin/sub-admin): select several files at once ----
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function bulkAddPhotos(files) {
+  const cat = CATEGORIES.find(c => c.key === currentCategory);
+  const arr = PHOTOS[currentCategory];
+  const emptyIndices = [];
+  arr.forEach((slot, i) => { if (!slot) emptyIndices.push(i); });
+  if (!emptyIndices.length) {
+    alert('This category is already full — open a tile to replace an individual photo instead.');
+    return;
+  }
+
+  const toProcess = Array.from(files).slice(0, emptyIndices.length);
+  const skipped = files.length - toProcess.length;
+
+  for (let i = 0; i < toProcess.length; i++) {
+    const file = toProcess[i];
+    const idx = emptyIndices[i];
+    try {
+      const img = await loadImageFromFile(file);
+      let outW = img.naturalWidth, outH = img.naturalHeight;
+      if (Math.max(outW, outH) > CATALOG_MAX_DIM) {
+        if (outW >= outH) { outH = Math.round(outH * CATALOG_MAX_DIM / outW); outW = CATALOG_MAX_DIM; }
+        else { outW = Math.round(outW * CATALOG_MAX_DIM / outH); outH = CATALOG_MAX_DIM; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = outW; canvas.height = outH;
+      canvas.getContext('2d').drawImage(img, 0, 0, outW, outH);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const m = file.name.match(/(\d+)/);
+      const number = m ? m[1] : photoNumberLabel(cat, idx, null);
+      arr[idx] = { src: dataUrl, number, w: outW, h: outH, updated: new Date().toISOString() };
+    } catch (e) { /* skip a file that failed to load, keep going with the rest */ }
+  }
+
+  markDirty(currentCategory);
+  renderGrid();
+  if (skipped > 0) {
+    alert(`Added ${toProcess.length} photo(s). ${skipped} more were selected but there weren't enough empty slots left in this category — open a tile individually to replace one, or free up space first.`);
+  }
+}
+
+document.getElementById('bulkAddInput').addEventListener('change', (e) => {
+  const files = e.target.files;
+  if (!files || !files.length) return;
+  bulkAddPhotos(files).finally(() => { e.target.value = ''; });
 });
 
 // ---- sub-admin unlock: click the top (Vintage Hub) logo 5 times -----------
@@ -566,8 +665,8 @@ document.getElementById('goToOrderBtn').addEventListener('click', () => { render
 function openDesignerCanvas(side) {
   activeSide = side;
   document.getElementById('designerSideTitle').textContent = side === 'back' ? 'Back' : 'Front';
-  document.getElementById('tshirtSvgBack').classList.toggle('hidden', side !== 'back');
-  document.getElementById('tshirtSvgFront').classList.toggle('hidden', side !== 'front');
+  document.getElementById('tshirtImgBack').classList.toggle('hidden', side !== 'back');
+  document.getElementById('tshirtImgFront').classList.toggle('hidden', side !== 'front');
   renderDesignerLayers();
   showScreen('designerCanvasScreen');
 }
@@ -600,6 +699,15 @@ function buildLayerEl(layer) {
     resize.className = 'layer-resize';
     resize.addEventListener('pointerdown', (e) => startResize(e, layer, el));
     el.appendChild(resize);
+    const edit = document.createElement('button');
+    edit.className = 'layer-edit';
+    edit.textContent = '✎';
+    edit.title = 'Re-crop this image';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCropModal({ mode: 'editLayer', layer });
+    });
+    el.appendChild(edit);
   } else {
     el.textContent = layer.text;
     el.style.fontSize = layer.fontSize + 'px';
@@ -627,7 +735,7 @@ function buildLayerEl(layer) {
 }
 
 function startDrag(e, layer, el) {
-  if (e.target.closest('.layer-del') || e.target.closest('.layer-resize') || e.target.closest('.layer-fontctl')) return;
+  if (e.target.closest('.layer-del') || e.target.closest('.layer-resize') || e.target.closest('.layer-fontctl') || e.target.closest('.layer-edit')) return;
   e.preventDefault();
   const stage = document.getElementById('designerStage');
   const stageRect = stage.getBoundingClientRect();
@@ -674,11 +782,14 @@ function startResize(e, layer, el) {
   document.addEventListener('pointerup', onUp);
 }
 
-function addImageLayer(src, natW, natH) {
+function addImageLayer(src, natW, natH, originalSrc) {
   const aspect = natH / natW;
   const w = 40; // % of stage width
   const h = Math.min(80, w * aspect * (300 / 380)); // rough stage aspect correction
-  currentLayers().push({ id: Date.now() + Math.random(), type: 'image', src, x: 30, y: 30, w, h: h || 30 });
+  currentLayers().push({
+    id: Date.now() + Math.random(), type: 'image', src, originalSrc: originalSrc || src,
+    x: 30, y: 30, w, h: h || 30,
+  });
   renderDesignerLayers();
 }
 
@@ -740,7 +851,7 @@ function openPickerGrid(cat) {
     tile.appendChild(img);
     tile.addEventListener('click', () => {
       document.getElementById('pickerModal').classList.add('hidden');
-      addImageLayer(slot.src, TILE_WIDTH, TILE_HEIGHT);
+      addImageLayer(slot.src, slot.w || 5, slot.h || 4);
     });
     grid.appendChild(tile);
   });
@@ -754,13 +865,20 @@ document.getElementById('pickerBackToCats').addEventListener('click', () => {
 });
 document.getElementById('pickerCancel').addEventListener('click', () => document.getElementById('pickerModal').classList.add('hidden'));
 
-// ---- confirm a side -----------------------------------------------------
+// ---- confirm a side (one click = exactly one saved screenshot) -----------
 
+let confirmingSide = false;
 document.getElementById('confirmSideBtn').addEventListener('click', async () => {
+  if (confirmingSide) return; // ignore any extra clicks/taps while we're already processing
+  confirmingSide = true;
+  const btn = document.getElementById('confirmSideBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
   const stage = document.getElementById('designerStage');
   let shotUrl = null;
   try {
-    const canvas = await html2canvas(stage, { backgroundColor: '#0e1220', scale: 1.5 });
+    const canvas = await html2canvas(stage, { backgroundColor: '#f4f0e8', scale: 1.5 });
     shotUrl = canvas.toDataURL('image/jpeg', 0.7);
   } catch (e) { /* html2canvas unavailable/failed — continue without a screenshot */ }
 
@@ -772,11 +890,15 @@ document.getElementById('confirmSideBtn').addEventListener('click', async () => 
   }
   logEvent('confirmDesign', { side: activeSide });
 
+  btn.disabled = false;
+  btn.textContent = 'Confirm this side';
+  confirmingSide = false;
+
   renderDesignerChoose();
   showScreen('designerChooseScreen');
 });
 
-// ---- order summary + send ------------------------------------------------
+// ---- order summary + send (one click = exactly one order + one receipt) --
 
 let lastOrder = null;
 
@@ -795,20 +917,23 @@ function collectionWindow() {
 }
 
 function renderOrderSummary() {
-  const ref = makeRef();
-  const win = collectionWindow();
+  // Keep the same reference number if the customer navigates back and forth
+  // before actually sending — only mint a new one for a genuinely new order.
+  if (!lastOrder) {
+    lastOrder = { ref: makeRef(), collection: collectionWindow() };
+  }
+  const { ref, collection } = lastOrder;
   const sides = [];
   if (designerState.back.confirmed) sides.push('Back');
   if (designerState.front.confirmed) sides.push('Front');
-
-  lastOrder = { ref, collection: win, sides };
+  lastOrder.sides = sides;
 
   const box = document.getElementById('summaryBox');
   box.innerHTML = `
     <dl>
       <dt>Reference</dt><dd>${ref}</dd>
       <dt>Sides designed</dt><dd>${sides.join(' & ') || '—'}</dd>
-      <dt>Collection window</dt><dd>${win.text}</dd>
+      <dt>Collection window</dt><dd>${collection.text}</dd>
     </dl>
     <div class="summary-shots" id="summaryShots"></div>`;
   const shots = document.getElementById('summaryShots');
@@ -821,9 +946,26 @@ function renderOrderSummary() {
   });
 }
 
+let sendingOrder = false;
 document.getElementById('sendOrderBtn').addEventListener('click', async () => {
+  if (sendingOrder) return; // ignore any extra clicks/taps while we're already processing
+  sendingOrder = true;
+  const sendBtn = document.getElementById('sendOrderBtn');
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Sending…';
+
   if (!lastOrder) renderOrderSummary();
   const { ref, collection, sides } = lastOrder;
+
+  // Second screenshot: a receipt of the order summary itself (shows the
+  // reference number, sides, and collection window) — kept in the admin
+  // record separately from the design screenshot(s) taken at confirm time.
+  let receiptImage = null;
+  try {
+    const box = document.getElementById('summaryBox');
+    const canvas = await html2canvas(box, { backgroundColor: '#12172a', scale: 1.5 });
+    receiptImage = canvas.toDataURL('image/jpeg', 0.75);
+  } catch (e) { /* continue without a receipt image if capture fails */ }
 
   const lines = [
     'Hi Vintage Hub, I\'d like to place a custom design order.',
@@ -845,7 +987,7 @@ document.getElementById('sendOrderBtn').addEventListener('click', async () => {
   saveOrder({
     id: Date.now(), ref, createdAt: new Date().toISOString(),
     collectionFrom: collection.from, collectionTo: collection.to,
-    sides, images,
+    sides, images, receiptImage,
   });
   logEvent('placeOrder', { ref });
 
@@ -864,6 +1006,15 @@ document.getElementById('sendOrderBtn').addEventListener('click', async () => {
     ? text + '\n\n(Attaching my design image(s) that just downloaded.)'
     : text;
   window.location.href = buildWaLink(finalText);
+
+  lastOrder = null; // next order (if any) gets a fresh reference number
+  designerState = {
+    back: { layers: [], confirmed: false, screenshot: null },
+    front: { layers: [], confirmed: false, screenshot: null },
+  };
+  sendBtn.disabled = false;
+  sendBtn.textContent = 'Send order on WhatsApp';
+  sendingOrder = false;
 });
 
 // ---- admin dashboard ------------------------------------------------
@@ -927,7 +1078,7 @@ function renderDashboard() {
     orders.forEach(o => {
       const item = document.createElement('div');
       item.className = 'dash-item';
-      const thumb = o.images && o.images[0] ? o.images[0].dataUrl : '';
+      const thumb = o.receiptImage || (o.images && o.images[0] ? o.images[0].dataUrl : '');
       item.innerHTML = `
         ${thumb ? `<img src="${thumb}" alt="">` : ''}
         <div class="meta">
@@ -958,10 +1109,29 @@ function renderDashboard() {
   }
 }
 
+document.getElementById('clearOrdersBtn').addEventListener('click', () => {
+  const orders = loadOrders();
+  if (!orders.length) return;
+  if (!confirm(`Delete all ${orders.length} saved order(s) on this device? This can't be undone.`)) return;
+  localStorage.setItem(STORAGE_ORDERS, JSON.stringify([]));
+  renderDashboard();
+});
+document.getElementById('clearDesignsBtn').addEventListener('click', () => {
+  const designs = loadDesigns();
+  if (!designs.length) return;
+  if (!confirm(`Delete all ${designs.length} saved confirmed design(s) on this device? This can't be undone.`)) return;
+  localStorage.setItem(STORAGE_DESIGNS, JSON.stringify([]));
+  renderDashboard();
+});
+
 // ---- boot -------------------------------------------------------------
 
 document.getElementById('mainLogoImg').src = LOGO_DATA_URI;
 document.getElementById('aakritiLogoImg').src = AAKRITI_LOGO_URI;
+document.getElementById('tshirtImgBack').src = TSHIRT_BACK_URI;
+document.getElementById('tshirtImgFront').src = TSHIRT_FRONT_URI;
+document.getElementById('chooseBackImg').src = TSHIRT_BACK_URI;
+document.getElementById('chooseFrontImg').src = TSHIRT_FRONT_URI;
 
 loadPhotos();
 logEvent('visit', {});

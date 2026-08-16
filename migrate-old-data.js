@@ -37,9 +37,9 @@
     while (padded.length < cat.count) padded.push(null);
     const lines = padded.map(slot => {
       if (!slot) return '  null,';
-      return `  {src:${JSON.stringify(slot.src)}, number:${JSON.stringify(slot.number || null)}, updated:${JSON.stringify(slot.updated || null)}},`;
+      return `  {src:${JSON.stringify(slot.src)}, number:${JSON.stringify(slot.number || null)}, w:${slot.w || 5}, h:${slot.h || 4}, updated:${JSON.stringify(slot.updated || null)}},`;
     });
-    const content = `// ${cat.varName}: ${cat.label} category, ${cat.count} photo slots. Each slot is null (empty) or {src, number, updated} once filled.\n` +
+    const content = `// ${cat.varName}: ${cat.label} category, ${cat.count} photo slots. Each slot is null (empty) or {src, number, w, h, updated} once filled.\n` +
       `const ${cat.varName} = [\n${lines.join('\n')}\n];\n`;
     const blob = new Blob([content], { type: 'text/javascript' });
     const url = URL.createObjectURL(blob);

@@ -44,6 +44,13 @@
       <h2></h2>
       <span></span>
     </div>
+    <div class="bulk-add-wrap hidden" id="bulkAddWrap">
+      <label class="bulk-add-btn">
+        📁 Bulk add photos (select several at once)
+        <input type="file" id="bulkAddInput" accept="image/*" multiple>
+      </label>
+      <p class="bulk-add-hint">Fills the next empty slots in this category, in the order you pick them. Each photo keeps its own shape — no forced cropping. Open any tile afterwards to crop or replace it individually.</p>
+    </div>
     <div class="grid" id="grid"></div>
   </div>
 
@@ -54,12 +61,12 @@
     <p class="modal__hint" style="margin-top:-6px;">Choose a side to start designing. You can do both before ordering.</p>
     <div class="side-choice">
       <div class="side-card" id="chooseBack">
-        <svg viewBox="0 0 300 340"><path fill="none" stroke="#8b93a7" stroke-width="6" d="M60,40 L18,92 L46,114 L78,72 L78,320 L222,320 L222,72 L254,114 L282,92 L240,40 L225,25 Q150,55 75,25 Z"/></svg>
+        <img id="chooseBackImg" alt="Back of t-shirt">
         <div class="label">BACK</div>
         <div class="done hidden" id="backDoneTag">✓ designed</div>
       </div>
       <div class="side-card" id="chooseFront">
-        <svg viewBox="0 0 300 340"><path fill="none" stroke="#8b93a7" stroke-width="6" d="M60,40 L18,92 L46,114 L78,72 L78,320 L222,320 L222,72 L254,114 L282,92 L240,40 L225,25 Q150,60 150,60 Q150,60 75,25 Z"/><ellipse cx="150" cy="38" rx="26" ry="13" fill="#0a0d16" stroke="#8b93a7" stroke-width="4"/></svg>
+        <img id="chooseFrontImg" alt="Front of t-shirt">
         <div class="label">FRONT</div>
         <div class="done hidden" id="frontDoneTag">✓ designed</div>
       </div>
@@ -74,8 +81,8 @@
     <p class="designer-hint">The shirt outline is fixed — drag your images or text onto it.</p>
     <div class="designer-stage-wrap">
       <div class="designer-stage" id="designerStage">
-        <svg class="tshirt-bg" id="tshirtSvgBack" viewBox="0 0 300 340"><path fill="none" stroke="#3a4152" stroke-width="6" d="M60,40 L18,92 L46,114 L78,72 L78,320 L222,320 L222,72 L254,114 L282,92 L240,40 L225,25 Q150,55 75,25 Z"/></svg>
-        <svg class="tshirt-bg hidden" id="tshirtSvgFront" viewBox="0 0 300 340"><path fill="none" stroke="#3a4152" stroke-width="6" d="M60,40 L18,92 L46,114 L78,72 L78,320 L222,320 L222,72 L254,114 L282,92 L240,40 L225,25 Q150,60 150,60 Q150,60 75,25 Z"/><ellipse cx="150" cy="38" rx="26" ry="13" fill="none" stroke="#3a4152" stroke-width="4"/></svg>
+        <img class="tshirt-bg" id="tshirtImgBack" alt="Back of t-shirt">
+        <img class="tshirt-bg hidden" id="tshirtImgFront" alt="Front of t-shirt">
         <!-- layers injected here -->
       </div>
     </div>
@@ -106,11 +113,17 @@
     <div class="dash-highlight" id="dashMostViewed"></div>
 
     <div class="dash-section">
-      <h3>Orders placed</h3>
+      <div class="dash-section__head">
+        <h3>Orders placed</h3>
+        <button class="btn btn--ghost btn--small" id="clearOrdersBtn">Clear</button>
+      </div>
       <div class="dash-list" id="dashOrdersList"></div>
     </div>
     <div class="dash-section">
-      <h3>Confirmed designs</h3>
+      <div class="dash-section__head">
+        <h3>Confirmed designs</h3>
+        <button class="btn btn--ghost btn--small" id="clearDesignsBtn">Clear</button>
+      </div>
       <div class="dash-list" id="dashDesignsList"></div>
     </div>
 
@@ -260,9 +273,10 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="assets/logo-vintagehub.js"></script>
 <script src="assets/logo-aakriti.js"></script>
+<script src="assets/logo-tshirt-front.js"></script>
+<script src="assets/logo-tshirt-back.js"></script>
 <script src="data/typography.js"></script>
 <script src="data/retro-graphics.js"></script>
 <script src="data/pop-culture.js"></script>
