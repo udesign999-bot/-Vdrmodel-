@@ -1,0 +1,23 @@
+// POPCULTURE_PHOTOS: Pop Culture & Fandom category, 20 photo slots. Each slot is null (empty) or {src, number, updated} once filled.
+const POPCULTURE_PHOTOS = [
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+];

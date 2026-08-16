@@ -1,0 +1,23 @@
+// RETRO_PHOTOS: Retro Graphics category, 20 photo slots. Each slot is null (empty) or {src, number, updated} once filled.
+const RETRO_PHOTOS = [
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+];
